@@ -1,0 +1,16 @@
+{
+  "name": "quiz-game-project",
+  "version": "1.0.0",
+  "description": "WOHI 2 project",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": ["express", "nodejs", "backend", "api"],
+  "author": "severi",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}
