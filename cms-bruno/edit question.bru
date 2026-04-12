@@ -1,0 +1,19 @@
+meta {
+  name: edit question
+  type: http
+  seq: 1
+}
+
+put {
+  url: {{baseUrl}}1
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+  "question": "What is the capital of Sweden?",
+  "answer": "Stockholm",
+  "keyword": ["geo"]
+  }
+}
