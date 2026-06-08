@@ -1,49 +1,58 @@
 const { PrismaClient } = require("@prisma/client");
+const bcrypt = require("bcrypt");
 const prisma = new PrismaClient();
 
-const seedPosts = [
+const seedQuestions = [
   {
-    title: "Introduction to HTTP",
-    date: new Date("2026-03-20"),
-    content:
+    question: "what does HTTP stand for?",
+    answer:
       "HTTP is the foundation of communication on the web. It defines how clients and servers exchange data.",
     keywords: ["http", "web"],
   },
   {
-    title: "Understanding REST APIs",
-    date: new Date("2026-03-22"),
-    content:
-      "REST is an architectural style that uses standard HTTP methods like GET, POST, PUT, and DELETE.",
-    keywords: ["http", "api"],
+    question: "What is the purpose of the HTTP GET method?",
+    answer:
+      "The HTTP GET method is used to retrieve data from a specified resource.",
+    keywords: ["http", "get", "request"],
   },
   {
-    title: "Node.js Basics",
-    date: new Date("2026-03-25"),
-    content:
-      "Node.js allows you to run JavaScript on the server using a non-blocking, event-driven architecture.",
-    keywords: ["javascript", "backend"],
+    question: "What does WWW stand for in the context of the internet?",
+    answer: "WWW stands for World Wide Web.",
+    keywords: ["www", "web"],
   },
   {
-    title: "Introduction to Databases",
-    date: new Date("2026-03-26"),
-    content:
-      "Databases store and organize data. Common types include relational databases like PostgreSQL and MySQL.",
-    keywords: ["database", "backend"],
+    question: "What do 400 series HTTP status codes indicate?",
+    answer:
+      "400 series HTTP status codes indicate client errors, meaning the request was malformed or could not be understood by the server.",
+    keywords: ["http", "status", "client-error"],
   },
 ];
 
 async function main() {
-  await prisma.post.deleteMany();
+  await prisma.question.deleteMany();
   await prisma.keyword.deleteMany();
+  await prisma.user.deleteMany();
 
-  for (const post of seedPosts) {
-    await prisma.post.create({
+  //Create default user
+  const hashedPassword = await bcrypt.hash("1234", 10);
+  const user = await prisma.user.create({
+    data: {
+      email: "admin@example.com",
+      password: hashedPassword,
+      name: "Admin User",
+    },
+  });
+
+  console.log("Created user:", user.email);
+
+  for (const question of seedQuestions) {
+    await prisma.question.create({
       data: {
-        title: post.title,
-        date: post.date,
-        content: post.content,
+        question: question.question,
+        answer: question.answer,
+        userId: user.id,
         keywords: {
-          connectOrCreate: post.keywords.map((kw) => ({
+          connectOrCreate: question.keywords.map((kw) => ({
             where: { name: kw },
             create: { name: kw },
           })),
