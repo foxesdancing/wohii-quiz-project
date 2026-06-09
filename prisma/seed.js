@@ -45,6 +45,11 @@ async function main() {
 
   console.log("Created user:", user.email);
 
+  await prisma.badge.createMany({
+    data: [{ name: "Correct Answer" }],
+    skipDuplicates: true,
+  });
+
   for (const question of seedQuestions) {
     await prisma.question.create({
       data: {
