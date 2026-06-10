@@ -1,41 +1,18 @@
-const express = require("express");
-const app = express();
-const questionsRouter = require("./routes/questions");
-const prisma = require("./lib/prisma");
-const authRouter = require("./routes/auth");
-const path = require("path");
+const app = require("./app");
 const PORT = process.env.PORT || 3000;
-
-app.use(express.static(path.join(__dirname, "..", "public")));
-
-// Middleware to parse JSON bodies (will be useful in later steps)
-app.use(express.json());
-
-// Routes
-app.use("/api/auth", authRouter);
-app.use("/api/questions", questionsRouter);
-
-app.use((req, res) => {
-  res.status(404).json({ msg: "Not found." });
-});
-
-// Error handling middlware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ msg: "Internal server error" });
-});
+const prisma = require("./lib/prisma");
+const logger = require("./lib/logger");
 
 // Start the server
 app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  const logger = require("./lib/logger");
+  logger.info({ port: PORT }, "server listening");
 });
 
 // Graceful shutdown
-process.on("SIGINT", async () => {
+async function shutdown() {
   await prisma.$disconnect();
-  process.exit(0);
-});
-process.on("SIGTERM", async () => {
-  await prisma.$disconnect();
-  process.exit(0);
-});
+  server.close(() => process.exit(0));
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
