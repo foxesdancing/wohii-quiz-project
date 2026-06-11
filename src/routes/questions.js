@@ -178,14 +178,14 @@ router.post("/ai-generate", async (req, res, next) => {
     });
 
     const prompt = `
-      Create an educational quiz question based on the topic: "${topic}". 
-      The target difficulty tier must be exactly: "${targetDifficulty}".
-      Return a clean, valid JSON object matching this exact structural interface:
-      {
-        "question": "The text of the question?",
-        "answer": "The specific short text correction value answer"
-      }
-    `;
+    Create an educational quiz question based on the topic: "${topic}". 
+    The target difficulty tier must be exactly: "${targetDifficulty}".
+    Return a clean, valid JSON object matching this exact structural interface:
+    {
+      "question": "The text of the question?",
+      "answer": "The specific short text correction value answer"
+    }
+  `;
 
     const result = await model.generateContent(prompt);
     const responseText = result.response.text();
@@ -211,6 +211,31 @@ router.post("/ai-generate", async (req, res, next) => {
       data: formatQuestion(newQuestion, req.user.userId),
     });
   } catch (error) {
+    // Log the error to your backend console so you still see the exact telemetry stack trace
+    req.log
+      ? req.log.error(error)
+      : console.error("AI Generation Error:", error);
+
+    // 1. Intercept Google Generative AI explicit capacity bottlenecks (Status 503)
+    if (
+      error.status === 503 ||
+      (error.message && error.message.includes("503"))
+    ) {
+      return res.status(503).json({
+        error:
+          "Gemini AI is currently overloaded with traffic. Please wait a few seconds and try again!",
+      });
+    }
+
+    // 2. Intercept JSON Parsing bugs if Gemini responds with poorly formatted or cut-off JSON strings
+    if (error instanceof SyntaxError) {
+      return res.status(422).json({
+        error:
+          "The AI generated an answer but it failed to parse correctly. Please try triggering it again.",
+      });
+    }
+
+    // 3. Fallback: Pass any database or unexpected errors to the global Express error boundary handler
     next(error);
   }
 });

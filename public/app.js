@@ -320,38 +320,137 @@ async function showQuestionForm(qId) {
     }
   }
 
+  // Generate dynamic Tab navigation markup only when creating a new question
+  const tabNavigationHTML = isEdit
+    ? ""
+    : `
+    <div class="tab-headers" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.5rem;">
+      <button id="tab-btn-manual" class="btn btn-edit" style="background: rgba(167, 139, 250, 0.35); border-radius: 8px 8px 0 0;">✍️ Manual Form</button>
+      <button id="tab-btn-ai" class="btn btn-clear" style="border-radius: 8px 8px 0 0;">✨ AI Generator</button>
+    </div>
+  `;
+
   container.innerHTML = `
     <a href="#" id="back-btn" class="back-link">&larr; Back to questions</a>
     <div class="question-form-wrapper">
       <h2>${isEdit ? "Edit Question" : "New Question"}</h2>
-      <form id="question-form" enctype="multipart/form-data">
-        <div class="form-group">
-          <label for="q-question">Question</label>
-          <input type="text" id="q-question" value="${q.question}" required />
-        </div>
-        <div class="form-group">
-          <label for="q-answer">Answer</label>
-          <textarea id="q-answer" rows="4" required>${q.answer}</textarea>
-        </div>
-        <div class="form-group">
-          <label for="q-keywords">Keywords (comma-separated)</label>
-          <input type="text" id="q-keywords" value="${q.keywords ? q.keywords.join(", ") : ""}" />
-        </div>
-        <div class="form-group">
-          <label for="q-image">Image ${isEdit ? "(leave blank to keep current)" : "(optional)"}</label>
-          <input type="file" id="q-image" accept="image/*" />
-          ${isEdit && q.imageUrl ? `<img src="${q.imageUrl}" alt="" style="max-width:200px;margin-top:0.5rem;border-radius:4px" />` : ""}
-        </div>
-        <button type="submit" class="btn btn-primary">${isEdit ? "Save Changes" : "Create Question"}</button>
-      </form>
-      <p id="question-form-error" class="error"></p>
+      
+      ${tabNavigationHTML}
+
+      <div id="manual-form-panel">
+        <form id="question-form" enctype="multipart/form-data">
+          <div class="form-group">
+            <label for="q-question">Question</label>
+            <input type="text" id="q-question" value="${q.question}" required />
+          </div>
+          <div class="form-group">
+            <label for="q-answer">Answer</label>
+            <textarea id="q-answer" rows="4" required>${q.answer}</textarea>
+          </div>
+          <div class="form-group">
+            <label for="q-keywords">Keywords (comma-separated)</label>
+            <input type="text" id="q-keywords" value="${q.keywords ? q.keywords.join(", ") : ""}" />
+          </div>
+          <div class="form-group">
+            <label for="q-image">Image ${isEdit ? "(leave blank to keep current)" : "(optional)"}</label>
+            <input type="file" id="q-image" accept="image/*" />
+            ${isEdit && q.imageUrl ? `<img src="${q.imageUrl}" alt="" style="max-width:200px;margin-top:0.5rem;border-radius:4px" />` : ""}
+          </div>
+          <button type="submit" class="btn btn-primary">${isEdit ? "Save Changes" : "Create Question"}</button>
+        </form>
+        <p id="question-form-error" class="error"></p>
+      </div>
+
+      ${
+        isEdit
+          ? ""
+          : `
+      <div id="ai-form-panel" style="display: none;">
+        <form id="ai-question-form">
+          <div class="form-group">
+            <label for="ai-topic">Topic / Concept</label>
+            <input type="text" id="ai-topic" placeholder="e.g., JavaScript Scope, HTML semantic tags, SQL Joins..." required />
+          </div>
+          <div class="form-group">
+            <label for="ai-difficulty">Difficulty Rating</label>
+            <select id="ai-difficulty" style="width: 100%; padding: 0.7rem 1rem; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; font-size: 1rem; font-family: inherit; color: #fff;">
+              <option value="EASY" style="background: #24243e; color: #fff;">Easy Challenge</option>
+              <option value="MEDIUM" selected style="background: #24243e; color: #fff;">Medium Challenge</option>
+              <option value="HARD" style="background: #24243e; color: #fff;">Hard Challenge</option>
+            </select>
+          </div>
+          <button type="submit" id="ai-submit-btn" class="btn btn-play" style="margin-top: 0.5rem; width: 100%; padding: 0.8rem;">✨ Ask Gemini to Generate</button>
+        </form>
+        <p id="ai-form-error" class="error"></p>
+      </div>
+      `
+      }
     </div>`;
 
+  // --- Back Button Listener ---
   document.getElementById("back-btn").addEventListener("click", (e) => {
     e.preventDefault();
     loadQuestions();
   });
 
+  // --- Tab Interactivity Rules (Skip execution if editing) ---
+  if (!isEdit) {
+    const tabBtnManual = document.getElementById("tab-btn-manual");
+    const tabBtnAi = document.getElementById("tab-btn-ai");
+    const panelManual = document.getElementById("manual-form-panel");
+    const panelAi = document.getElementById("ai-form-panel");
+
+    tabBtnManual.addEventListener("click", () => {
+      panelManual.style.display = "block";
+      panelAi.style.display = "none";
+      tabBtnManual.className = "btn btn-edit";
+      tabBtnAi.className = "btn btn-clear";
+    });
+
+    tabBtnAi.addEventListener("click", () => {
+      panelManual.style.display = "none";
+      panelAi.style.display = "block";
+      tabBtnManual.className = "btn btn-clear";
+      tabBtnAi.className = "btn btn-edit";
+    });
+
+    // --- AI Form Submission Logic ---
+    document
+      .getElementById("ai-question-form")
+      .addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const errorEl = document.getElementById("ai-form-error");
+        const submitBtn = document.getElementById("ai-submit-btn");
+        errorEl.textContent = "";
+
+        // 1. Gather variables
+        const topic = document.getElementById("ai-topic").value.trim();
+        const difficulty = document.getElementById("ai-difficulty").value;
+
+        // 2. Visual feedback for the latency period
+        submitBtn.disabled = true;
+        submitBtn.textContent = "🪄 Magic is happening...";
+        submitBtn.style.opacity = "0.6";
+
+        try {
+          // 3. Dispatch data to server payload
+          await apiFetch(CONFIG.ROUTES.AI_GENERATE, {
+            method: "POST",
+            body: JSON.stringify({ topic, difficulty }),
+          });
+
+          // 4. Reset page screen state cleanly on successful generation
+          loadQuestions();
+        } catch (err) {
+          errorEl.textContent = err.message;
+          submitBtn.disabled = false;
+          submitBtn.textContent = "✨ Ask Gemini to Generate";
+          submitBtn.style.opacity = "1";
+        }
+      });
+  }
+
+  // --- Traditional Manual Form Submission Logic ---
   document
     .getElementById("question-form")
     .addEventListener("submit", async (e) => {
