@@ -8,6 +8,9 @@ const path = require("path");
 const { ValidationError, NotFoundError } = require("../lib/errors");
 const { z } = require("zod");
 
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
 const QuestionInput = z.object({
   question: z.string().min(1),
   answer: z.string().min(1),
@@ -85,6 +88,21 @@ router.get("/", async (req, res) => {
   //res.json({ message: "Questions route works" });
   const { keywords } = req.query;
 
+  try {
+    const { difficulty } = req.query;
+
+    const questions = await prisma.question.findMany({
+      where: {
+        // If difficulty is provided in URL, filter by it. Otherwise, ignore.
+        ...(difficulty && { difficulty: difficulty.toUpperCase() }),
+      },
+    });
+
+    res.json(questions);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch questions" });
+  }
+
   const where = keywords
     ? { keywords: { some: { name: { in: keywords } } } }
     : {};
@@ -138,6 +156,36 @@ router.get("/:questionId", async (req, res) => {
   res.json(formatQuestion(questionS, req.user.userId));
 });
 
+// GET /api/questions/quiz
+router.get("/quiz", async (req, res) => {
+  try {
+    const { difficulty } = req.query;
+
+    let questions;
+
+    if (difficulty) {
+      // Direct raw safe query matching the lowercase table name seen in your logs
+      questions = await prisma.$queryRaw`
+        SELECT * FROM questions 
+        WHERE difficulty = ${difficulty.toUpperCase()} 
+        ORDER BY RAND() 
+        LIMIT 10
+      `;
+    } else {
+      questions = await prisma.$queryRaw`
+        SELECT * FROM questions 
+        ORDER BY RAND() 
+        LIMIT 10
+      `;
+    }
+
+    res.json(questions);
+  } catch (error) {
+    console.error("Quiz generation failed:", error);
+    res.status(500).json({ error: "Failed to generate random quiz" });
+  }
+});
+
 // POST /api/questions
 router.post("/", upload.single("image"), async (req, res) => {
   const { question, answer, keywords } = QuestionInput.parse(req.body);
@@ -165,6 +213,57 @@ router.post("/", upload.single("image"), async (req, res) => {
     include: { keywords: true },
   });
   res.status(201).json(formatQuestion(newQuestion));
+});
+
+// POST /api/questions/ai-generate
+router.post("/ai-generate", async (req, res) => {
+  const { topic, difficulty } = req.body;
+  const targetDifficulty = (difficulty || "MEDIUM").toUpperCase();
+
+  if (!topic) {
+    return res.status(400).json({ error: "Topic is required" });
+  }
+
+  try {
+    // Initialize flash model
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+      // Force Gemini to output standard JSON text
+      generationConfig: { responseMimeType: "application/json" },
+    });
+
+    const prompt = `
+      Create a unique quiz question about the topic: "${topic}". 
+      The difficulty rating must be exactly: "${targetDifficulty}".
+      Return a JSON object matching this exact structure:
+      {
+        "text": "The text of the question?",
+        "answer": "The correct open-ended answer"
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+    const aiData = JSON.parse(responseText);
+
+    // Save the AI generated question directly to the database
+    const newQuestion = await prisma.question.create({
+      data: {
+        text: aiData.text,
+        answer: aiData.answer,
+        difficulty: targetDifficulty,
+        userId: req.user?.id || 1, // Fallback to user ID 1 or logged-in user context
+      },
+    });
+
+    res.status(201).json({
+      message: "AI Question generated and saved successfully!",
+      question: newQuestion,
+    });
+  } catch (error) {
+    console.error("AI Generation Crash:", error);
+    res.status(500).json({ error: "AI failed to generate a valid question" });
+  }
 });
 
 // PUT /api/questions/:questionId — isOwner checks existence + ownership
