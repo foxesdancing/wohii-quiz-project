@@ -1,3 +1,7 @@
+// --- Global Game State Management Variables ---
+let activeQuizQuestions = [];
+let activeQuestionIndex = 0;
+let quizCorrectCount = 0; // Tracks in-memory session scores
 // --- State ---
 let isRegisterMode = false;
 
@@ -115,7 +119,7 @@ async function showApp() {
   await loadQuestions();
 }
 
-async function loadQuestions(keyword = "", page = 1) {
+async function loadQuestions(keyword = "", difficulty = "", page = 1) {
   const container = document.getElementById("questions-container");
   container.innerHTML = '<p class="loading">Loading questions...</p>';
 
@@ -125,6 +129,7 @@ async function loadQuestions(keyword = "", page = 1) {
       limit: CONFIG.QUESTIONS_PER_PAGE,
     });
     if (keyword) params.set("keyword", keyword);
+    if (difficulty) params.set("difficulty", difficulty);
     const result = await apiFetch(`${CONFIG.ROUTES.QUESTIONS}?${params}`);
     const { data: questions, total, totalPages } = result;
     const currentUserId = getCurrentUserId();
@@ -144,12 +149,23 @@ async function loadQuestions(keyword = "", page = 1) {
           <div class="score-label">Solved (this page)</div>
         </div>
       </div>
-      <div class="toolbar">
-        <button class="btn btn-primary" id="new-question-btn">+ New Question</button>
-        <div class="search-bar">
+      <div class="toolbar" style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-primary" id="new-question-btn" style="margin-bottom:0;">+ New Question</button>
+          <button class="btn-quiz-launch" id="launch-quiz-btn" style="margin-bottom:0; background: #3b82f6; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">⚡ Start Quiz Session</button>
+        </div>
+        
+        <div class="search-bar" style="display: flex; gap: 0.5rem; align-items: center;">
+          <select id="difficulty-filter" style="padding: 0.55rem 1rem; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; font-size: 0.85rem; font-family: inherit; color: #fff; cursor: pointer;">
+            <option value="" ${difficulty === "" ? "selected" : ""} style="background: #24243e; color: #fff;">All Tiers</option>
+            <option value="EASY" ${difficulty === "EASY" ? "selected" : ""} style="background: #24243e; color: #51cf66;">Easy</option>
+            <option value="MEDIUM" ${difficulty === "MEDIUM" ? "selected" : ""} style="background: #24243e; color: #ffd200;">Medium</option>
+            <option value="HARD" ${difficulty === "HARD" ? "selected" : ""} style="background: #24243e; color: #ff6b6b;">Hard</option>
+          </select>
+
           <input type="text" id="keyword-input" placeholder="Search by keyword..." value="${keyword}" />
           <button class="btn btn-search" id="search-btn">Search</button>
-          ${keyword ? `<button class="btn btn-clear" id="clear-btn">Clear</button>` : ""}
+          ${keyword || difficulty ? `<button class="btn btn-clear" id="clear-btn">Clear</button>` : ""}
         </div>
       </div>`;
 
@@ -200,30 +216,59 @@ async function loadQuestions(keyword = "", page = 1) {
 
     container.innerHTML = html;
 
+    // --- Core Navigation Actions ---
     document
       .getElementById("new-question-btn")
       .addEventListener("click", () => showQuestionForm());
+    document
+      .getElementById("launch-quiz-btn")
+      .addEventListener("click", () => showQuizLauncherForm());
+
+    // Trigger search when difficulty option is changed
+    document
+      .getElementById("difficulty-filter")
+      .addEventListener("change", (e) => {
+        const currentKeyword = document
+          .getElementById("keyword-input")
+          .value.trim();
+        loadQuestions(currentKeyword, e.target.value, 1);
+      });
 
     document.getElementById("search-btn").addEventListener("click", () => {
-      loadQuestions(document.getElementById("keyword-input").value.trim(), 1);
+      const currentDiff = document.getElementById("difficulty-filter").value;
+      loadQuestions(
+        document.getElementById("keyword-input").value.trim(),
+        currentDiff,
+        1,
+      );
     });
 
     document
       .getElementById("keyword-input")
       .addEventListener("keydown", (e) => {
-        if (e.key === "Enter") loadQuestions(e.target.value.trim(), 1);
+        if (e.key === "Enter") {
+          const currentDiff =
+            document.getElementById("difficulty-filter").value;
+          loadQuestions(e.target.value.trim(), currentDiff, 1);
+        }
       });
 
     const clearBtn = document.getElementById("clear-btn");
-    if (clearBtn) clearBtn.addEventListener("click", () => loadQuestions());
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => loadQuestions("", "", 1));
+    }
 
     const prevBtn = document.getElementById("prev-btn");
     if (prevBtn)
-      prevBtn.addEventListener("click", () => loadQuestions(keyword, page - 1));
+      prevBtn.addEventListener("click", () =>
+        loadQuestions(keyword, difficulty, page - 1),
+      );
 
     const nextBtn = document.getElementById("next-btn");
     if (nextBtn)
-      nextBtn.addEventListener("click", () => loadQuestions(keyword, page + 1));
+      nextBtn.addEventListener("click", () =>
+        loadQuestions(keyword, difficulty, page + 1),
+      );
 
     container.querySelectorAll(".question-link, .read-more").forEach((el) => {
       el.addEventListener("click", (e) => {
@@ -320,7 +365,6 @@ async function showQuestionForm(qId) {
     }
   }
 
-  // Generate dynamic Tab navigation markup only when creating a new question
   const tabNavigationHTML = isEdit
     ? ""
     : `
@@ -387,13 +431,11 @@ async function showQuestionForm(qId) {
       }
     </div>`;
 
-  // --- Back Button Listener ---
   document.getElementById("back-btn").addEventListener("click", (e) => {
     e.preventDefault();
     loadQuestions();
   });
 
-  // --- Tab Interactivity Rules (Skip execution if editing) ---
   if (!isEdit) {
     const tabBtnManual = document.getElementById("tab-btn-manual");
     const tabBtnAi = document.getElementById("tab-btn-ai");
@@ -414,7 +456,6 @@ async function showQuestionForm(qId) {
       tabBtnAi.className = "btn btn-edit";
     });
 
-    // --- AI Form Submission Logic ---
     document
       .getElementById("ai-question-form")
       .addEventListener("submit", async (e) => {
@@ -423,23 +464,18 @@ async function showQuestionForm(qId) {
         const submitBtn = document.getElementById("ai-submit-btn");
         errorEl.textContent = "";
 
-        // 1. Gather variables
         const topic = document.getElementById("ai-topic").value.trim();
         const difficulty = document.getElementById("ai-difficulty").value;
 
-        // 2. Visual feedback for the latency period
         submitBtn.disabled = true;
         submitBtn.textContent = "🪄 Magic is happening...";
         submitBtn.style.opacity = "0.6";
 
         try {
-          // 3. Dispatch data to server payload
           await apiFetch(CONFIG.ROUTES.AI_GENERATE, {
             method: "POST",
             body: JSON.stringify({ topic, difficulty }),
           });
-
-          // 4. Reset page screen state cleanly on successful generation
           loadQuestions();
         } catch (err) {
           errorEl.textContent = err.message;
@@ -450,7 +486,6 @@ async function showQuestionForm(qId) {
       });
   }
 
-  // --- Traditional Manual Form Submission Logic ---
   document
     .getElementById("question-form")
     .addEventListener("submit", async (e) => {
@@ -481,7 +516,7 @@ async function showQuestionForm(qId) {
     });
 }
 
-// --- Play ---
+// --- Play (Single Sandbox Mode) ---
 async function playQuestion(qId) {
   const container = document.getElementById("questions-container");
   container.innerHTML = '<p class="loading">Loading...</p>';
@@ -538,21 +573,14 @@ async function playQuestion(qId) {
           );
 
           let html = "";
-
           if (result.correct) {
             html += `<div class="play-result correct">Correct!</div>`;
           } else {
-            html += `
-    <div class="play-result incorrect">
-      Incorrect! The answer was: <strong>${result.correctAnswer}</strong>
-    </div>`;
+            html += `<div class="play-result incorrect">Incorrect! The answer was: <strong>${result.correctAnswer}</strong></div>`;
           }
 
           if (result.badgeEarned) {
-            html += `
-    <div class="play-result badge">
-      🏆 Badge earned: <strong>${result.badgeEarned}</strong>
-    </div>`;
+            html += `<div class="play-result badge">🏆 Badge earned: <strong>${result.badgeEarned}</strong></div>`;
           }
 
           resultEl.innerHTML = html;
@@ -563,6 +591,189 @@ async function playQuestion(qId) {
   } catch (err) {
     container.innerHTML = `<p class="error">${err.message}</p>`;
   }
+}
+
+// --- Session-Based Quiz Launcher & Gameplay Engine ---
+function showQuizLauncherForm() {
+  const container = document.getElementById("questions-container");
+  container.innerHTML = `
+    <a href="#" id="back-btn" class="back-link">&larr; Back to Dashboard</a>
+    <div class="question-form-wrapper">
+      <h2>⚡ Setup Custom Session Quiz</h2>
+      <p style="color: rgba(255,255,255,0.6); font-size: 0.9rem; margin-bottom: 1.5rem;">
+        Assemble active card challenges into an immediate consecutive session stack.
+      </p>
+      <form id="quiz-launcher-form">
+        <div class="form-group">
+          <label for="quiz-topic">Keyword/Filter Topic (Optional)</label>
+          <input type="text" id="quiz-topic" placeholder="e.g. JavaScript, CSS, HTML (Leave empty for all)" />
+        </div>
+        <div class="form-group">
+          <label for="quiz-difficulty">Difficulty Focus</label>
+          <select id="quiz-difficulty" style="width: 100%; padding: 0.7rem 1rem; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px; font-size: 1rem; font-family: inherit; color: #fff;">
+            <option value="" style="background: #24243e; color: #fff;">Any Difficulty Tier</option>
+            <option value="EASY" style="background: #24243e; color: #51cf66;">Easy</option>
+            <option value="MEDIUM" style="background: #24243e; color: #ffd200;">Medium</option>
+            <option value="HARD" style="background: #24243e; color: #ff6b6b;">Hard</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-play" style="width: 100%; padding: 0.8rem; background:#3b82f6;">🚀 Generate Session Run</button>
+      </form>
+      <p id="quiz-launch-error" class="error"></p>
+    </div>
+  `;
+
+  document.getElementById("back-btn").addEventListener("click", (e) => {
+    e.preventDefault();
+    loadQuestions();
+  });
+
+  document
+    .getElementById("quiz-launcher-form")
+    .addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById("quiz-launch-error");
+      errorEl.textContent = "";
+
+      const keyword = document.getElementById("quiz-topic").value.trim();
+      const difficulty = document.getElementById("quiz-difficulty").value;
+
+      try {
+        const params = new URLSearchParams({ page: 1, limit: 30 }); // Gathers up to 30 matching cards to build a pool
+        if (keyword) params.set("keyword", keyword);
+        if (difficulty) params.set("difficulty", difficulty);
+
+        const result = await apiFetch(`${CONFIG.ROUTES.QUESTIONS}?${params}`);
+        let questionsPool = result.data || [];
+
+        if (questionsPool.length === 0) {
+          throw new Error(
+            "No available questions found matching your preferred configurations.",
+          );
+        }
+
+        // Shuffle items randomly inside the local state array wrapper and slice a 5-question layout deck
+        questionsPool.sort(() => 0.5 - Math.random());
+        const selectedDeck = questionsPool.slice(0, 5);
+
+        startQuizSession(selectedDeck);
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
+}
+
+function startQuizSession(questionsArray) {
+  activeQuizQuestions = questionsArray;
+  activeQuestionIndex = 0;
+  quizCorrectCount = 0;
+  playCurrentQuizQuestion();
+}
+
+async function playCurrentQuizQuestion() {
+  const container = document.getElementById("questions-container");
+
+  // Game End Boundary Evaluation Check
+  if (activeQuestionIndex >= activeQuizQuestions.length) {
+    const finalPercent = Math.round(
+      (quizCorrectCount / activeQuizQuestions.length) * 100,
+    );
+    container.innerHTML = `
+      <div class="question-form-wrapper" style="text-align:center; padding: 2.5rem 1.5rem;">
+        <h2 style="font-size: 2rem; margin-bottom: 0.5rem;">🎉 Quiz Completed!</h2>
+        <div style="font-size: 4rem; font-weight: bold; color: #a78bfa; margin: 1.5rem 0;">
+          ${quizCorrectCount} / ${activeQuizQuestions.length}
+        </div>
+        <p style="color: rgba(255,255,255,0.7); margin-bottom: 2rem;">Success Ratio: <strong>${finalPercent}%</strong></p>
+        <button class="btn btn-primary" id="quiz-exit-btn" style="padding: 0.8rem 2rem;">Return to Dashboard</button>
+      </div>
+    `;
+    document
+      .getElementById("quiz-exit-btn")
+      .addEventListener("click", () => loadQuestions());
+    return;
+  }
+
+  const q = activeQuizQuestions[activeQuestionIndex];
+
+  container.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+      <span style="font-weight:600; font-size:0.9rem; color: #a78bfa;">⚡ ACTIVE QUIZ RUN</span>
+      <span style="background: rgba(255,255,255,0.1); padding: 0.25rem 0.7rem; border-radius: 20px; font-size: 0.8rem;">
+        Question ${activeQuestionIndex + 1} of ${activeQuizQuestions.length}
+      </span>
+    </div>
+    <div class="question-form-wrapper" style="text-align:center">
+      <div class="play-question-text" style="font-size: 1.3rem; font-weight: 500; margin-bottom: 1.5rem;">${q.question}</div>
+      ${q.imageUrl ? `<img class="question-image" src="${q.imageUrl}" alt="" style="margin:0 auto 1rem; max-height:200px; border-radius:8px;">` : ""}
+      
+      <form id="quiz-play-form" style="text-align:left">
+        <div class="form-group">
+          <label for="quiz-play-answer" style="color: rgba(255,255,255,0.5);">Your Answer Selection</label>
+          <textarea id="quiz-play-answer" rows="3" required placeholder="Type your response verification details here..."></textarea>
+        </div>
+        <div style="text-align:center" id="quiz-action-area">
+          <button type="submit" class="btn btn-play" style="padding:0.7rem 2.5rem; font-size:1rem; width:100%;">Submit Verification</button>
+        </div>
+      </form>
+      <div id="quiz-play-result" style="margin-top: 1.5rem;"></div>
+      <p id="quiz-play-error" class="error"></p>
+    </div>
+  `;
+
+  document
+    .getElementById("quiz-play-form")
+    .addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById("quiz-play-error");
+      const resultEl = document.getElementById("quiz-play-result");
+      const actionArea = document.getElementById("quiz-action-area");
+
+      errorEl.textContent = "";
+      const answer = document.getElementById("quiz-play-answer").value.trim();
+
+      try {
+        // Dispatches verification analysis downstream to your existing API logic
+        const result = await apiFetch(
+          `${CONFIG.ROUTES.QUESTIONS}/${q.id}/attempt`,
+          {
+            method: "POST",
+            body: JSON.stringify({ answer }),
+          },
+        );
+
+        let html = "";
+        if (result.correct) {
+          quizCorrectCount++;
+          html += `<div class="play-result correct" style="padding: 1rem; border-radius: 8px; font-weight:600; margin-bottom:1rem;">🎉 Correct Response!</div>`;
+        } else {
+          html += `
+          <div class="play-result incorrect" style="padding: 1rem; border-radius: 8px; text-align: left; margin-bottom:1rem;">
+            ❌ Incorrect Analysis.<br>
+            <span style="font-size:0.85rem; opacity:0.8;">The accepted validation standard:</span><br>
+            <strong style="color:#fff;">${result.correctAnswer}</strong>
+          </div>`;
+        }
+
+        resultEl.innerHTML = html;
+
+        // Swap out the submission area with a "Next Step" routing button block
+        const standardButtonLabel =
+          activeQuestionIndex + 1 === activeQuizQuestions.length
+            ? "Finish Quiz Run &rarr;"
+            : "Proceed to Next Question &rarr;";
+        actionArea.innerHTML = `<button type="button" id="quiz-next-btn" class="btn btn-primary" style="width:100%; padding: 0.8rem;">${standardButtonLabel}</button>`;
+
+        document
+          .getElementById("quiz-next-btn")
+          .addEventListener("click", () => {
+            activeQuestionIndex++;
+            playCurrentQuizQuestion();
+          });
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    });
 }
 
 // --- Delete ---

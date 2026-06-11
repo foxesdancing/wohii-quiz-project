@@ -1,3 +1,7 @@
+// --- Global Game State Management Variables ---
+let activeQuizQuestions = [];
+let activeQuestionIndex = 0;
+
 const path = require("path");
 const express = require("express");
 const pinoHttp = require("pino-http");
